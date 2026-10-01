@@ -3,7 +3,8 @@
     "rootNamespace": "Playable.Editor",
     "references": [
         "Playable",
-        "UnityEngine.UI"
+        "UnityEngine.UI",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [
         "Editor"

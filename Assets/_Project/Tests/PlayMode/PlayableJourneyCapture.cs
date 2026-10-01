@@ -37,10 +37,43 @@ namespace Playable.Tests
         public static IEnumerator Frame(string name)
         {
             yield return null;
+            yield return CompiledShaders();
             Save($"{index:00}-{name}-a");
             yield return new WaitForSecondsRealtime(0.4f);
+            yield return CompiledShaders();
             Save($"{index:00}-{name}-b");
             index++;
+        }
+
+        /// <summary>
+        /// With a cold shader cache (the first test run after a Playworks build) the editor compiles shaders
+        /// asynchronously and draws placeholders until they are ready: a frame showed the beaver as a red
+        /// silhouette (ArtTests, 2026-10-01). The compilation is waited out with game time stopped, so
+        /// the frame still shows the moment it was asked for: with the clock running, the one-shot smoke
+        /// puff was gone by then. ShaderUtil.allowAsyncCompilation = false around the capture does not reach
+        /// URP's own command buffers (tried the same day: the silhouette stayed).
+        /// </summary>
+        private static IEnumerator CompiledShaders()
+        {
+#if UNITY_EDITOR
+            if (!UnityEditor.ShaderUtil.anythingCompiling) yield break;
+            float timeScale = Time.timeScale;
+            Time.timeScale = 0f;
+            float timeout = Time.realtimeSinceStartup + 60f;
+            while (UnityEditor.ShaderUtil.anythingCompiling)
+            {
+                if (Time.realtimeSinceStartup > timeout)
+                {
+                    Time.timeScale = timeScale;
+                    throw new TimeoutException("шейдеры компилируются дольше 60 с — кадр снял бы заглушки");
+                }
+                yield return null;
+            }
+            yield return null; // one frame drawn with the compiled shaders
+            Time.timeScale = timeScale;
+#else
+            yield break;
+#endif
         }
 
         private static void Save(string fileName)
