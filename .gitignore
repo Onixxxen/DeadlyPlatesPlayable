@@ -1,0 +1,29 @@
+# --- Unity-generated, per checkout
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Bb]uild/
+/[Bb]uilds/
+/[Mm]emoryCaptures/
+*.csproj
+*.sln
+*.suo
+*.user
+*.pidb
+*.booproj
+.vs/
+.idea/
+.vscode/
+
+# --- Unity Playworks: build output and the plugin junction.
+# The junction points at the plugin folder, which holds the Playworks login
+# (pipeline/.auth_credentials.user). It must NEVER be committed.
+/LunaTemp/
+/Playworks
+/Playworks/
+
+# --- tooling deps
+/qa/node_modules/
+/qa-out/

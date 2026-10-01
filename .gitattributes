@@ -1,0 +1,28 @@
+# Unity YAML: merged by UnityYAMLMerge when configured, never line-wise.
+*.unity     merge=unityyamlmerge eol=lf
+*.prefab    merge=unityyamlmerge eol=lf
+*.asset     merge=unityyamlmerge eol=lf
+*.mat       merge=unityyamlmerge eol=lf
+*.anim      merge=unityyamlmerge eol=lf
+*.controller merge=unityyamlmerge eol=lf
+*.meta      merge=unityyamlmerge eol=lf
+
+*.cs   text eol=lf
+*.mjs  text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.tga  binary
+*.psd  binary
+*.fbx  binary
+*.glb  binary
+*.ogg  binary
+*.wav  binary
+*.mp3  binary
+*.ttf  binary
+*.otf  binary
+*.zip  binary
