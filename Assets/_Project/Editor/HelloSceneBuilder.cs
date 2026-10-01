@@ -116,24 +116,8 @@ namespace Playable.Editor
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             EditorBuildSettings.RemoveConfigObject("com.unity.input.settings.actions");
             AssetDatabase.SaveAssets();
-            PointPlayworksAt(ScenePath);
+            PlayworksScenes.PointAt(ScenePath);
             Debug.Log($"[HelloSceneBuilder] built {ScenePath}");
-        }
-
-        /// <summary>
-        /// Unity Playworks keeps its own scene list in luna.json (unity.scenes) and does not follow
-        /// the build settings: a list naming a deleted scene fails the export with LP1025
-        /// ExportCollectionException: ScenesCollection. Every scene builder sets it.
-        /// </summary>
-        public static void PointPlayworksAt(string scenePath)
-        {
-            const string file = "luna.json";
-            if (!File.Exists(file)) return;
-            string json = File.ReadAllText(file);
-            string updated = System.Text.RegularExpressions.Regex.Replace(
-                json, "\"scenes\"\\s*:\\s*\\[[^\\]]*\\]", $"\"scenes\": [\"{scenePath}\"]");
-            updated = System.Text.RegularExpressions.Regex.Replace(updated, "\"startupScene\"\\s*:\\s*\\d+", "\"startupScene\": 0");
-            if (updated != json) File.WriteAllText(file, updated);
         }
 
         private static GameObject MakePanel(Transform parent, string name, Color color)
