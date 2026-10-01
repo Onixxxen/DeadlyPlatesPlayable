@@ -73,7 +73,8 @@
                 "Stubs/Sirenix/Odin Inspector/",
                 "Stubs/MeshCombiner/",
                 "Stubs/AnimationBaker/",
-                "Stubs/SupersonicWisdom/"
+                "Stubs/SupersonicWisdom/",
+                "**/Tests/"
             ],
             "msbuildMac64": "/Library/Frameworks/Mono.framework/Versions/Current/bin/msbuild",
             "msbuildWin64": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe",
@@ -129,7 +130,7 @@
             ]
         },
         "scenes": [
-            "Assets/Scenes/SampleScene.unity"
+            "Assets/_Project/Scenes/Main.unity"
         ],
         "disabledScenes": [],
         "startupScene": 0,
@@ -293,6 +294,6 @@
             "falloff": 100.0
         }
     },
-    "logLevel_Cs": "error",
+    "logLevel_Cs": "info",
     "logLevel_Js": "trace"
 }

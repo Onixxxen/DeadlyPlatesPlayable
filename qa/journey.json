@@ -1,0 +1,19 @@
+{
+  "seed": 1,
+  "steps": [
+    { "wait": 1500 },
+    { "frame": "hook" },
+    { "tap": { "portrait": [0.5, 0.483], "landscape": [0.5, 0.483] } },
+    { "wait": 500 },
+    { "frame": "first-hit" },
+    { "tap": { "portrait": [0.219, 0.327], "landscape": [0.44, 0.327] } },
+    { "wait": 400 },
+    { "tap": { "portrait": [0.781, 0.37], "landscape": [0.56, 0.37] } },
+    { "wait": 800 },
+    { "frame": "endcard" },
+    { "tapCta": true, "at": [0.5, 0.5] },
+    { "expectCta": 1 },
+    { "hide": true },
+    { "show": true }
+  ]
+}

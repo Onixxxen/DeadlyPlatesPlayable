@@ -1,0 +1,14 @@
+{
+  "name": "pa-qa",
+  "private": true,
+  "type": "module",
+  "description": "Browser QA for HTML5 playable ads: network stubs, journey, frames, rule checks.",
+  "scripts": {
+    "selftest": "node selftest/run.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "playwright": "^1.55.0",
+    "pngjs": "^7.0.0"
+  }
+}
