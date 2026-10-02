@@ -18,7 +18,7 @@ namespace Playable.Editor
     /// the beaver (FBX, texture at 1024, the three clips Character.controller plays, the controller, the
     /// original's material) and Beaver.prefab; the landing smoke (texture, Particles/Unlit material,
     /// SmokePuff.prefab); the ten sounds; the tutorial hand; TMP's essential resources and a static Benzin
-    /// font asset on one 512² atlas.
+    /// font asset on one 512² atlas, made TMP's default font (no default sprite asset).
     ///
     ///   Unity -batchmode -projectPath &lt;project&gt; -executeMethod Playable.Editor.Batch.RunThenExit -paMethod Playable.Editor.ArtImport.Run
     ///
@@ -69,6 +69,7 @@ namespace Playable.Editor
             BuildBeaver();
             BuildSmokePuff(SmokeMaterial());
             BuildFont();
+            PointTmpAtBenzin();
             AssetDatabase.SaveAssets();
             Debug.Log($"[ArtImport] done: {BeaverPrefab}, {SmokePrefab}, {FontAsset}");
         }
@@ -287,6 +288,18 @@ namespace Playable.Editor
                 Object.DestroyImmediate(font);
             }
             throw new InvalidOperationException($"{glyphs.Length} глифов Benzin не помещаются в {AtlasSize}² даже при 24 pt");
+        }
+
+        // TMP Settings is in luna.json's includes, so the build takes everything it references. As shipped
+        // that is LiberationSans SDF with its dynamic Fallback and the TTF behind it, and the EmojiOne sprite
+        // sheet — 240 KB the playable never shows (the build's STATS=1 breakdown, 2026-10-02). Benzin covers
+        // every printable ASCII glyph, so nothing falls back to the default font.
+        private static void PointTmpAtBenzin()
+        {
+            var settings = new SerializedObject(AssetDatabase.LoadAssetAtPath<TMP_Settings>(TmpSettings));
+            settings.FindProperty("m_defaultFontAsset").objectReferenceValue = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(FontAsset);
+            settings.FindProperty("m_defaultSpriteAsset").objectReferenceValue = null;
+            settings.ApplyModifiedPropertiesWithoutUndo();
         }
     }
 }
