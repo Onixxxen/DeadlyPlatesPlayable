@@ -17,6 +17,14 @@ namespace Playable.Tests
     {
         private const float WaveSeconds = 0.4f;
         private const float HookSeconds = 2.5f;
+        private const float FirstHopSeconds = 0.5f; // after the tap, as the build's journey waits
+
+        /// <summary>
+        /// The journey's hops on FieldConfig.Seed's field (traps at 0,2 2,1 −2,0): from the centre down-left to the rim,
+        /// along it, and back in. Fixed cells, not "the first safe target": the frames then show the same path from run
+        /// to run, and the island change stays past the 4th hop — the beaver keeps 4 plates around it.
+        /// </summary>
+        private static readonly Vector2Int[] Path = { new Vector2Int(0, -1), new Vector2Int(0, -2), new Vector2Int(-1, -2), new Vector2Int(-1, -1) };
 
         [UnityTest]
         public IEnumerator Main_FromHookToInstall()
@@ -28,40 +36,164 @@ namespace Playable.Tests
             Assert.IsNotNull(rig, "в сцене Main нет CameraRig — MainSceneBuilder.Build не запускали?");
             var plates = Object.FindFirstObjectByType<PlatesView>();
             Assert.IsNotNull(plates, "в сцене Main нет PlatesView");
+            var hop = Object.FindFirstObjectByType<HopController>();
+            Assert.IsNotNull(hop, "в сцене Main нет HopController");
+            Assert.AreSame(hop.transform, rig.Target, "камера следит не за бобром");
+            var beaver = hop.GetComponent<BeaverView>();
+            int hops = 0;
+            System.Action onHop = () => hops++;
+            HopController.HopStarted += onHop;
+            try
+            {
+                while (Time.timeSinceLevelLoad < WaveSeconds) yield return null;
+                AssertMidWave(plates, "wave-a");
+                Assert.IsFalse(Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None).Any(p => p.isPlaying), "дымок играет до приземления бобра");
+                yield return PlayableJourneyCapture.Frame("wave");
+                AssertMidWave(plates, "wave-b");
 
-            while (Time.timeSinceLevelLoad < WaveSeconds) yield return null;
-            AssertMidWave(plates, "wave-a");
-            yield return PlayableJourneyCapture.Frame("wave");
-            AssertMidWave(plates, "wave-b");
+                while (Time.timeSinceLevelLoad < HookSeconds) yield return null;
+                float yaw = beaver.Yaw;
+                yield return PlayableJourneyCapture.Frame("hook");
+                AssertTurned(beaver, yaw, "hook");
 
-            while (Time.timeSinceLevelLoad < HookSeconds) yield return null;
-            yield return PlayableJourneyCapture.Frame("hook");
+                Camera camera = Camera.main;
+                Assert.AreSame(rig.GetComponent<Camera>(), camera, "кадры сняты не камерой CameraRig");
+                AssertIslandInView(camera, "на hook");
+                AssertIslandComplete(plates, beaver);
+                Bounds body = rig.Target.GetComponentInChildren<SkinnedMeshRenderer>().bounds;
+                AssertInView(camera, body, "бобёр на hook");
+                Assert.LessOrEqual(body.max.y, CameraConfig.ViewTop, $"бобёр ({body.max.y:0.00}) выше коробки, которую держит камера (CameraConfig.ViewTop)");
+                Assert.IsTrue(rig.Target.GetComponent<Animator>().GetCurrentAnimatorStateInfo(0).IsName("Walk"), "бобёр не в Walk");
+                Assert.IsTrue(hop.InputOpen, "на hook ввод ещё закрыт");
 
-            Camera camera = Camera.main;
-            Assert.AreSame(rig.GetComponent<Camera>(), camera, "кадры сняты не камерой CameraRig");
-            AssertIslandInView(camera, "на hook");
-            AssertIslandComplete(plates, rig.Target);
-            Bounds beaver = rig.Target.GetComponentInChildren<SkinnedMeshRenderer>().bounds;
-            AssertInView(camera, beaver, "бобёр на hook");
-            Assert.LessOrEqual(beaver.max.y, CameraConfig.ViewTop, $"бобёр ({beaver.max.y:0.00}) выше коробки, которую держит камера (CameraConfig.ViewTop)");
-            Assert.IsTrue(rig.Target.GetComponent<Animator>().GetCurrentAnimatorStateInfo(0).IsName("Walk"), "бобёр не в Walk");
+                // The first hop, a tap in the air that must not hop, the frame when the build's journey takes it.
+                var centre = new Vector2(Screen.width / 2f, Screen.height / 2f);
+                Vector2Int start = plates.Field.Beaver;
+                PlateView startPlate = plates.Plate(start);
+                PlateView[] trail = Path.Take(3).Select(plates.Plate).ToArray();
+                yield return HopOnto(hop, plates, Path[0]);
+                PlayableInput.Simulate(centre);
+                yield return WaitGame(FirstHopSeconds);
+                Assert.IsTrue(startPlate == null || startPlate.transform.localScale.x < 0.9f, "стартовая плита на first-hop не крошится");
+                yaw = beaver.Yaw;
+                yield return PlayableJourneyCapture.Frame("first-hop");
+                AssertTurned(beaver, yaw, "first-hop");
+                Assert.AreEqual(1, hops, "тап во время прыжка начал ещё один");
+                Assert.AreEqual(1, plates.Field.Score, "очко за первый прыжок");
+                AssertStandsOn(beaver, Path[0], "first-hop");
+                Assert.IsTrue(Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None).Any(p => p.particleCount > 0), "на first-hop нет дымка");
 
-            var install = Object.FindFirstObjectByType<InstallButton>();
-            Assert.IsNotNull(install, "нет кнопки INSTALL");
-            var label = install.GetComponentInChildren<TMP_Text>();
-            Assert.AreEqual("INSTALL", label.text);
-            Assert.AreEqual("Benzin-Bold SDF", label.font.name, "INSTALL не шрифтом Benzin");
-            Rect button = ScreenRect((RectTransform)install.transform, camera);
-            Assert.IsTrue(button.xMin >= 0f && button.yMin >= 0f && button.xMax <= Screen.width && button.yMax <= Screen.height, $"INSTALL {button} за краем экрана");
-            float corner = 50f * Mathf.Sqrt(Screen.width * Screen.height / (390f * 844f)); // 50 px of a 390×844 phone
-            Assert.IsTrue(button.xMax <= Screen.width - corner || button.yMax <= Screen.height - corner, $"INSTALL {button} заходит в верхний угол 50×50");
+                for (int i = 1; i < Path.Length; i++) yield return HopOnto(hop, plates, Path[i]);
+                yield return WaitGame(HopConfig.LeftPlateDelay + PlateConfig.CrumbleSeconds + 0.1f); // the last plate left is gone
+                Assert.IsTrue(hop.InputOpen, "после 4-го прыжка ввод не открылся");
+                yaw = beaver.Yaw;
+                yield return PlayableJourneyCapture.Frame("hops");
+                AssertTurned(beaver, yaw, "hops");
+                Assert.AreEqual(4, hops, "не четыре прыжка");
+                Assert.AreEqual(4, plates.Field.Score, "не 4 очка за четыре прыжка");
+                Assert.IsNull(plates.Field.Change, "остров сменился раньше кадра hops");
+                AssertStandsOn(beaver, Path[3], "hops");
+                Assert.IsTrue(startPlate == null && trail.All(p => p == null), "на hops не исчезли все четыре плиты пути");
+                Assert.IsTrue(Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None).Any(p => p.isPlaying && Vector3.Distance(p.transform.position, beaver.transform.position) < 0.5f),
+                    $"5-я посадка (дымки сцены по кругу: их {HopConfig.Puffs}) без дымка");
 
-            var centre = new Vector2(Screen.width / 2f, Screen.height / 2f);
-            Assert.IsFalse(InstallButton.Covers(centre), "тап в центр экрана считается тапом по INSTALL");
-            Assert.IsTrue(InstallButton.Covers(button.center), "тап по INSTALL не считается тапом по INSTALL");
-            int before = PlayableAd.InstallCalls;
-            PlayableInput.Simulate(button.center);
-            Assert.AreEqual(before + 1, PlayableAd.InstallCalls, "тап по INSTALL должен открывать стор ровно один раз");
+                var install = Object.FindFirstObjectByType<InstallButton>();
+                Assert.IsNotNull(install, "нет кнопки INSTALL");
+                var label = install.GetComponentInChildren<TMP_Text>();
+                Assert.AreEqual("INSTALL", label.text);
+                Assert.AreEqual("Benzin-Bold SDF", label.font.name, "INSTALL не шрифтом Benzin");
+                Rect button = ScreenRect((RectTransform)install.transform, camera);
+                Assert.IsTrue(button.xMin >= 0f && button.yMin >= 0f && button.xMax <= Screen.width && button.yMax <= Screen.height, $"INSTALL {button} за краем экрана");
+                float corner = 50f * Mathf.Sqrt(Screen.width * Screen.height / (390f * 844f)); // 50 px of a 390×844 phone
+                Assert.IsTrue(button.xMax <= Screen.width - corner || button.yMax <= Screen.height - corner, $"INSTALL {button} заходит в верхний угол 50×50");
+
+                Assert.IsFalse(InstallButton.Covers(centre), "тап в центр экрана считается тапом по INSTALL");
+                Assert.IsTrue(InstallButton.Covers(button.center), "тап по INSTALL не считается тапом по INSTALL");
+                int before = PlayableAd.InstallCalls;
+                PlayableInput.Simulate(button.center);
+                Assert.AreEqual(before + 1, PlayableAd.InstallCalls, "тап по INSTALL должен открывать стор ровно один раз");
+                Assert.AreEqual(4, hops, "тап по INSTALL начал прыжок");
+                Assert.IsTrue(hop.InputOpen, "тап по INSTALL закрыл ввод");
+            }
+            finally
+            {
+                HopController.HopStarted -= onHop;
+            }
+        }
+
+        /// <summary>A trap: the plate dips, then drops away with the beaver, which falls in Fall; a tap then is no hop.</summary>
+        [UnityTest]
+        public IEnumerator Hop_OntoATrap_FallsWithThePlate()
+        {
+            SceneManager.LoadScene("Main");
+            yield return null;
+            var plates = Object.FindFirstObjectByType<PlatesView>();
+            var hop = Object.FindFirstObjectByType<HopController>();
+            Transform beaver = hop.transform;
+            int fell = 0, landed = 0;
+            System.Action onFell = () => fell++;
+            System.Action<Vector2Int, int> onLanded = (cell, score) => landed++;
+            HopController.Fell += onFell;
+            HopController.Landed += onLanded;
+            try
+            {
+                var trap = new Vector2Int(-2, 0); // FieldConfig.Seed's trap on the left rim
+                yield return HopOnto(hop, plates, new Vector2Int(-1, 0));
+                PlateView plate = plates.Plate(trap);
+                yield return HopOnto(hop, plates, trap, HopOutcome.Trap);
+                float landing = Time.time + HopConfig.HopSeconds;
+                yield return WaitFor(() => fell > 0, HopConfig.HopSeconds + 1f, "Fell не пришёл после прыжка на ловушку");
+                Assert.GreaterOrEqual(Time.time, landing + PlateConfig.DipDownSeconds - 0.05f, "ловушка ушла вниз, не прогнувшись");
+                Assert.AreEqual(1, landed, "посадку на ловушку посчитали за Landed");
+                Assert.IsNull(plates.Plate(trap), "клетка ловушки не освободилась");
+                float offset = beaver.position.y - plate.transform.position.y;
+                yield return WaitGame(PlateConfig.DropSeconds / 2f);
+                Assert.AreEqual(offset, beaver.position.y - plate.transform.position.y, 0.02f, "бобёр падает не вместе с плитой");
+                Assert.IsTrue(beaver.GetComponent<Animator>().GetCurrentAnimatorStateInfo(0).IsName("Fall"), "бобёр падает не в Fall");
+                PlayableInput.Simulate(new Vector2(Screen.width / 2f, Screen.height / 2f)); // a hop now would throw: the game is over
+                Assert.IsFalse(hop.InputOpen, "ввод открыт во время падения");
+                yield return WaitGame(PlateConfig.DropSeconds / 2f + 0.1f);
+                Assert.AreEqual(HopConfig.StandHeight - PlateConfig.DropDistance, beaver.position.y, 0.01f, "бобёр не провалился на DropDistance");
+                Assert.IsTrue(plate == null, "упавшая ловушка осталась в сцене");
+                Assert.AreEqual(1, fell, "Fell не один раз");
+            }
+            finally
+            {
+                HopController.Fell -= onFell;
+                HopController.Landed -= onLanded;
+            }
+        }
+
+        /// <summary>The void: a hop back onto the plate just left jumps and falls the same way.</summary>
+        [UnityTest]
+        public IEnumerator Hop_IntoTheVoid_Falls()
+        {
+            SceneManager.LoadScene("Main");
+            yield return null;
+            var plates = Object.FindFirstObjectByType<PlatesView>();
+            var hop = Object.FindFirstObjectByType<HopController>();
+            var beaver = hop.GetComponent<BeaverView>();
+            int fell = 0;
+            System.Action onFell = () => fell++;
+            HopController.Fell += onFell;
+            try
+            {
+                Vector2Int start = plates.Field.Beaver;
+                yield return HopOnto(hop, plates, new Vector2Int(0, 1));
+                yield return WaitFor(() => hop.InputOpen && plates.Target.HasValue && plates.Target.Value == start, 8f, "бобёр не повернулся к пустоте");
+                Assert.IsFalse(Object.FindObjectsByType<PlateView>(FindObjectsSortMode.None).Any(p => p.Glowing), "бобёр смотрит в пустоту, а плита светится");
+                yield return HopOnto(hop, plates, start, HopOutcome.Void); // the plate left behind is gone
+                yield return WaitFor(() => fell > 0, HopConfig.HopSeconds + 0.5f, "Fell не пришёл после прыжка в пустоту");
+                AssertStandsOn(beaver, start, "прыжок в пустоту");
+                yield return WaitGame(PlateConfig.DropSeconds + 0.1f);
+                Assert.AreEqual(HopConfig.StandHeight - PlateConfig.DropDistance, beaver.transform.position.y, 0.01f, "бобёр не провалился на DropDistance");
+                Assert.IsFalse(hop.InputOpen, "ввод открыт после падения");
+                Assert.AreEqual(1, fell, "Fell не один раз");
+            }
+            finally
+            {
+                HopController.Fell -= onFell;
+            }
         }
 
         /// <summary>The calls the hop and the island change make on the plates, which they may not edit:
@@ -145,6 +277,48 @@ namespace Playable.Tests
             }
         }
 
+        /// <summary>Waits until a gameplay tap would hop onto <paramref name="cell"/> — input open, the beaver facing it,
+        /// the field saying what it is — and taps the screen centre, as the build's journey does.</summary>
+        private static IEnumerator HopOnto(HopController hop, PlatesView plates, Vector2Int cell, HopOutcome expected = HopOutcome.Safe)
+        {
+            Assert.AreEqual(expected, plates.Field.OutcomeAt(cell), $"путь сценария: {cell} в поле seed {FieldConfig.Seed} — не {expected}");
+            yield return WaitFor(() => hop.InputOpen && plates.Target.HasValue && plates.Target.Value == cell, 8f,
+                $"бобёр так и не повернулся к {cell} с открытым вводом");
+            int score = plates.Field.Score;
+            PlayableInput.Simulate(new Vector2(Screen.width / 2f, Screen.height / 2f));
+            Assert.IsFalse(hop.InputOpen, $"тап не начал прыжок на {cell}");
+            Assert.AreEqual(cell, plates.Field.Beaver, $"прыжок не на {cell}");
+            Assert.AreEqual(expected == HopOutcome.Safe ? score + 1 : score, plates.Field.Score, "очко не за безопасную посадку");
+        }
+
+        private static IEnumerator WaitFor(System.Func<bool> done, float seconds, string failure)
+        {
+            float end = Time.time + seconds;
+            while (!done())
+            {
+                Assert.Less(Time.time, end, failure);
+                yield return null;
+            }
+        }
+
+        private static IEnumerator WaitGame(float seconds)
+        {
+            float end = Time.time + seconds;
+            while (Time.time < end) yield return null;
+        }
+
+        /// <summary>The beaver turned between a frame pair's -a and -b (the yaw from before the pair).</summary>
+        private static void AssertTurned(BeaverView beaver, float yaw, string frame) =>
+            Assert.Greater(Mathf.Abs(Mathf.DeltaAngle(yaw, beaver.Yaw)), 10f, $"{frame}: бобёр не поворачивается между -a и -b");
+
+        /// <summary>The beaver over the middle of <paramref name="cell"/>.</summary>
+        private static void AssertStandsOn(BeaverView beaver, Vector2Int cell, string when)
+        {
+            Vector3 at = beaver.transform.position;
+            Assert.IsTrue(Mathf.Abs(at.x - cell.x * FieldConfig.Spacing) < 0.01f && Mathf.Abs(at.z - cell.y * FieldConfig.Spacing) < 0.01f,
+                $"{when}: бобёр в {at}, а не на {cell}");
+        }
+
         /// <summary>Some plate of the field between nothing and its rest size: the wave is running.</summary>
         private static void AssertMidWave(PlatesView plates, string when)
         {
@@ -158,7 +332,7 @@ namespace Playable.Tests
         }
 
         /// <summary>Every plate of the field at rest size, a trap among them, the plate the beaver faces glowing.</summary>
-        private static void AssertIslandComplete(PlatesView plates, Transform beaver)
+        private static void AssertIslandComplete(PlatesView plates, BeaverView beaver)
         {
             int traps = 0;
             foreach (Vector2Int cell in plates.Field.Plates)
@@ -170,13 +344,13 @@ namespace Playable.Tests
                 if (plate.IsTrap) traps++;
             }
             Assert.Greater(traps, 0, "на hook ни одной ловушки");
-            Vector2Int faced = plates.Field.Beaver + Field.Facing(beaver.eulerAngles.y);
+            Vector2Int faced = plates.Field.Beaver + Field.Facing(beaver.Yaw);
             Assert.IsTrue(plates.Target.HasValue && plates.Target.Value == faced, $"цель {plates.Target} — не плита {faced}, на которую смотрит бобёр");
             Assert.IsTrue(plates.Plate(faced).Glowing, $"плита {faced}, на которую смотрит бобёр, не светится");
         }
 
-        /// <summary>Every plate of the 5×5 island at the world origin, and the hat of a beaver standing on any of
-        /// them, inside the viewport; returns the plates' viewport rect.</summary>
+        /// <summary>Every plate of the 5×5 island at the world origin, and the top of the box the camera keeps over
+        /// each of them, inside the viewport; returns the plates' viewport rect.</summary>
         private static Rect AssertIslandInView(Camera camera, string when)
         {
             Rect span = Rect.MinMaxRect(1f, 1f, 0f, 0f);

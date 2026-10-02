@@ -25,10 +25,6 @@ namespace Playable
         [SerializeField] private PlateView plate;
         [SerializeField] private PlateView trap;
 
-        // A target before anyone drives it (the placeholder beaver's), shown once the first island is in.
-        [SerializeField] private bool glowAtStart;
-        [SerializeField] private Vector2Int startTarget;
-
         private readonly Dictionary<Vector2Int, PlateView> plates = new Dictionary<Vector2Int, PlateView>();
         private Vector2Int? target;
 
@@ -52,13 +48,7 @@ namespace Playable
         {
             Field = new Field(FieldConfig.Seed);
             LogTraps();
-            PopIn(Field.Plates, Field.Beaver, () =>
-            {
-                // Rebuilt: Playworks deserializes a Vector2Int field into a bare {x, y} without Vector2Int's
-                // Equals and GetHashCode, and as a key it matched no plate (traced in the build, 2026-10-01).
-                if (glowAtStart) Target = new Vector2Int(startTarget.x, startTarget.y);
-                if (WaveFinished != null) WaveFinished();
-            });
+            PopIn(Field.Plates, Field.Beaver, () => { if (WaveFinished != null) WaveFinished(); });
         }
 
         /// <summary>

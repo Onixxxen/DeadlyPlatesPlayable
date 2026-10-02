@@ -19,10 +19,13 @@ namespace Playable
         public static readonly float Distance = 18f;
 
         /// <summary>The box kept on screen in either orientation, around the island centre: half a 5×5 island
-        /// with its gaps (2.75) across, from the plates' bottom to the hat of a beaver standing on one.</summary>
+        /// with its gaps (2.75) across, from the plates' bottom up to where a hop lifts the beaver's hat. Standing,
+        /// the hat is at 2.1; at the top of a hop (HopConfig.HopHeight) at 4.1, and in landscape a hop along the far
+        /// rim left the screen by a third of the beaver. At 2.6 that hop grazes the top edge with the hat while the
+        /// island still spans 0.66 of a landscape screen (0.69 at 2.1); portrait has room to spare either way.</summary>
         public static readonly float IslandHalf = FieldConfig.IslandSize * FieldConfig.Spacing / 2f;
         public static readonly float ViewBottom = -0.18f;
-        public static readonly float ViewTop = 2.1f;
+        public static readonly float ViewTop = 2.6f;
 
         /// <summary>World units kept free around that box.</summary>
         public static readonly float Margin = 0.3f;
