@@ -2,7 +2,8 @@
     "name": "Playable",
     "rootNamespace": "Playable",
     "references": [
-        "UnityEngine.UI"
+        "UnityEngine.UI",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
