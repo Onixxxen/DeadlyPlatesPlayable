@@ -8,7 +8,7 @@ namespace Playable.Tests
     /// <summary>
     /// Frame pairs: NN-name-a.png, then 400 ms later NN-name-b.png — one
     /// frame cannot show that something is NOT moving. Written to PA_RUN_DIR (set by
-    /// the test run), else to a dated folder in the project.
+    /// the test run), else to qa-out/&lt;date&gt;/editor/playmode in the project (gitignored).
     ///
     /// Renders Camera.main straight into a RenderTexture instead of ScreenCapture: in a headless
     /// run the Game View back buffer refreshes on the editor's schedule, not the scene's, so two
@@ -26,7 +26,7 @@ namespace Playable.Tests
             {
                 string dir = Environment.GetEnvironmentVariable(DirVariable);
                 if (string.IsNullOrWhiteSpace(dir))
-                    dir = Path.Combine(Application.dataPath, "..", "Docs", "Runs", DateTime.Now.ToString("yyyy-MM-dd"), "editor", "playmode");
+                    dir = Path.Combine(Application.dataPath, "..", "qa-out", DateTime.Now.ToString("yyyy-MM-dd"), "editor", "playmode");
                 Directory.CreateDirectory(dir);
                 return dir;
             }
