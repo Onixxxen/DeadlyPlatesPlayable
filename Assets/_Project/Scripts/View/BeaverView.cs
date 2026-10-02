@@ -27,7 +27,7 @@ namespace Playable
             home = transform.localPosition;
         }
 
-        private void Start() => animator.SetTrigger("Walk"); // Character.controller's Idle has no clip and leads only to Walk
+        private void Start() => animator.SetTrigger("Walk"); // Character.controller's Idle (Walk's clip, BeaverScene) leads only to Walk
 
         public void Turn(float degrees)
         {

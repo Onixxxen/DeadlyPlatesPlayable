@@ -1,4 +1,6 @@
+using System.Linq;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEngine;
 
 namespace Playable.Editor
@@ -33,6 +35,27 @@ namespace Playable.Editor
             hop.ApplyModifiedPropertiesWithoutUndo();
 
             scene.CameraRig.Target = beaver.transform;
+            FillEmptyStates();
+        }
+
+        /// <summary>
+        /// The original's Idle, the controller's entry state, has no clip. The Playworks runtime warns about such a state
+        /// ("Missing motion for state"), and a develop build posts its warnings to /runtime/diagnostics about 10 s in.
+        /// Idle plays Walk's clip: it lasts one frame, until the Walk trigger BeaverView sets at Start.
+        /// Runnable on its own: <c>Playable.Editor.BeaverScene.FillEmptyStates</c>.
+        /// </summary>
+        public static void FillEmptyStates()
+        {
+            var animator = AssetDatabase.LoadAssetAtPath<GameObject>(ArtImport.BeaverPrefab).GetComponent<Animator>();
+            var controller = (AnimatorController)animator.runtimeAnimatorController;
+            ChildAnimatorState[] states = controller.layers[0].stateMachine.states;
+            Motion walking = states.First(child => child.state.name == "Walk").state.motion;
+            foreach (ChildAnimatorState child in states.Where(child => child.state.motion == null))
+            {
+                child.state.motion = walking;
+                EditorUtility.SetDirty(child.state);
+            }
+            AssetDatabase.SaveAssets();
         }
 
         /// <summary>A copy of SmokePuff.prefab that waits for BeaverView to play it.</summary>
