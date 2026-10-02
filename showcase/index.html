@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deadly Plates — playable ad</title>
+  <meta name="description" content="A 22-second playable ad built in Unity 6 and converted to HTML5 by Unity Playworks.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4 30 12 16 20 2 12z' fill='%23ff9731'/%3E%3Cpath d='M2 12v6l14 8v-6zM30 12v6l-14 8v-6z' fill='%23c86a12'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0e1116;
+      --panel: #181c23;
+      --line: #2a313b;
+      --ink: #eef1f4;
+      --muted: #9aa4b0;
+      --orange: #ff9731;
+      --amber: #f3ab42;
+      --bezel: #050608;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      min-height: 100vh;
+      min-height: 100svh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    header { padding: 20px 16px 0; text-align: center; }
+    h1 { margin: 0; font-size: 26px; letter-spacing: .01em; }
+    h1 span { color: var(--amber); }
+    .lede { margin: 4px 0 0; color: var(--muted); }
+    .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 12px 16px; }
+    button, .button {
+      padding: 6px 16px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--ink);
+      font: inherit;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button[aria-pressed="true"] { border-color: var(--orange); background: var(--orange); color: #1a0f00; }
+    button:focus-visible, .button:focus-visible, a:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+    main { flex: 1; display: grid; place-items: center; width: 100%; padding: 0 16px 12px; }
+    /* The screen keeps the phone's own CSS size (390 x 844) and shrinks to fit the window. */
+    .phone {
+      --w: 390;
+      --h: 844;
+      padding: 12px;
+      border-radius: 46px;
+      background: var(--bezel);
+      box-shadow: 0 0 0 2px #2b3038, 0 24px 60px rgba(0, 0, 0, .55);
+    }
+    .phone.landscape { --w: 844; --h: 390; }
+    .screen {
+      display: block;
+      border: 0;
+      border-radius: 34px;
+      background: #000;
+      width: min(calc(var(--w) * 1px), calc(100vw - 56px), calc((100vh - 250px) * var(--w) / var(--h)));
+      height: min(calc(var(--h) * 1px), calc((100vw - 56px) * var(--h) / var(--w)), calc(100vh - 250px));
+      width: min(calc(var(--w) * 1px), calc(100vw - 56px), calc((100svh - 250px) * var(--w) / var(--h)));
+      height: min(calc(var(--h) * 1px), calc((100vw - 56px) * var(--h) / var(--w)), calc(100svh - 250px));
+    }
+    footer { max-width: 640px; padding: 0 16px 20px; color: var(--muted); font-size: 13px; text-align: center; }
+    footer a { color: var(--amber); }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      padding: 10px 18px;
+      border-radius: 12px;
+      background: var(--orange);
+      color: #1a0f00;
+      font-weight: 600;
+      opacity: 0;
+      transform: translate(-50%, 16px);
+      transition: opacity .2s, transform .2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Deadly <span>Plates</span></h1>
+    <p class="lede">A 22-second playable ad. Tap to hop onto the glowing plate; the cracked red ones are traps.</p>
+  </header>
+  <div class="controls" role="toolbar" aria-label="Demo controls">
+    <button type="button" data-orientation="portrait" aria-pressed="true">Portrait</button>
+    <button type="button" data-orientation="landscape" aria-pressed="false">Landscape</button>
+    <button type="button" id="restart">Restart</button>
+    <a class="button" href="ad/index.html">Full screen</a>
+  </div>
+  <main>
+    <div class="phone" id="phone">
+      <iframe class="screen" id="ad" src="ad/index.html" title="Deadly Plates playable ad"></iframe>
+    </div>
+  </main>
+  <footer>
+    Built in Unity 6 and converted to HTML5 by Unity Playworks; this page runs its develop build.
+    In a real ad INSTALL and PLAY NOW open the store; here they show a note.
+    <a id="source" hidden>Source on GitHub</a>
+  </footer>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script>
+    const phone = document.getElementById('phone');
+    const ad = document.getElementById('ad');
+    const toast = document.getElementById('toast');
+
+    // Inside an iframe the develop build waits for the Playworks Dev Environment to start it, which it
+    // does with this message on the iframe's load. Opened on its own (Full screen) it starts by itself.
+    ad.addEventListener('load', () => {
+      ad.contentWindow.postMessage(JSON.stringify({ name: 'setPlaygroundAssetOverrides', data: '{}' }), '*');
+    });
+
+    for (const button of document.querySelectorAll('[data-orientation]')) {
+      button.addEventListener('click', () => {
+        phone.classList.toggle('landscape', button.dataset.orientation === 'landscape');
+        for (const b of document.querySelectorAll('[data-orientation]')) b.setAttribute('aria-pressed', String(b === button));
+      });
+    }
+    document.getElementById('restart').addEventListener('click', () => { ad.src = ad.src; });
+
+    // The develop build tells its host about the store tap by postMessage; there is no store here.
+    let hide;
+    addEventListener('message', (e) => {
+      if (e.source !== ad.contentWindow) return;
+      let data = e.data;
+      if (typeof data === 'string') { try { data = JSON.parse(data); } catch { return; } }
+      if (!data || data.eventName !== 'cta') return;
+      toast.textContent = 'In a real ad, this tap opens the store.';
+      toast.classList.add('show');
+      clearTimeout(hide);
+      hide = setTimeout(() => toast.classList.remove('show'), 2200);
+    });
+
+    // On GitHub Pages (user.github.io/repo/) link back to the repository.
+    if (location.hostname.endsWith('.github.io')) {
+      const source = document.getElementById('source');
+      source.href = `https://github.com/${location.hostname.split('.')[0]}/${location.pathname.split('/')[1]}`;
+      source.hidden = false;
+    }
+  </script>
+</body>
+</html>
