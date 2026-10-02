@@ -8,7 +8,9 @@ namespace Playable
     /// scale in, the hand pulsing; the hop of a tap (<see cref="HopController.HopStarted"/>) sends them away, and later
     /// Readys do not bring them back. With input open and no tap the hand alone returns after TutorialConfig.ReturnSeconds,
     /// and after IdleSeconds <see cref="IdleTimedOut"/> is raised, once. The clock runs only while a tap would hop: a hop
-    /// in the air, a fall, closed input (the win, an end card) never count as idle.
+    /// in the air, a fall, closed input (the win, an end card) never count as idle. It counts from the last Ready — a tap
+    /// closes input and only a Ready opens it again — not from an Update that saw input closed: one long frame can start
+    /// and land a hop between two Updates.
     /// </summary>
     public sealed class Tutorial : MonoBehaviour
     {
@@ -24,7 +26,7 @@ namespace Playable
         private bool handShown;
         private bool pulsing;
         private float pulseStart;
-        private float idle;
+        private float openedAt; // Time.time of the last Ready: the idle clock's zero
         private bool timedOut;
 
         private void OnEnable()
@@ -42,13 +44,8 @@ namespace Playable
         private void Update()
         {
             if (pulsing) hand.localScale = Vector3.one * Pulse(Time.time - pulseStart);
-            if (timedOut) return;
-            if (!hop.InputOpen)
-            {
-                idle = 0f;
-                return;
-            }
-            idle += Time.deltaTime;
+            if (timedOut || !hop.InputOpen) return;
+            float idle = Time.time - openedAt;
             if (idle >= TutorialConfig.ReturnSeconds && !handShown) Show(false);
             if (idle < TutorialConfig.IdleSeconds) return;
             timedOut = true;
@@ -58,6 +55,7 @@ namespace Playable
 
         private void OnReady()
         {
+            openedAt = Time.time;
             if (introduced) return;
             introduced = true;
             Show(true);
