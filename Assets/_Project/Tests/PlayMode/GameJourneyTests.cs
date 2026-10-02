@@ -34,9 +34,12 @@ namespace Playable.Tests
         private static readonly Vector2Int[] ToTheChange = { new Vector2Int(-1, 0), new Vector2Int(-1, 1) };
 
         [UnityTest]
-        public IEnumerator Main_FromHookToInstall()
+        public IEnumerator Main_FromHookToTheEndCard()
         {
             PlayableJourneyCapture.Reset();
+            float firstPop = -1f; // Time.time of the wave's first pop: the centre plate, PlateConfig.PopUpSeconds into it
+            System.Action<Vector3> onPop = _ => { if (firstPop < 0f) firstPop = Time.time; };
+            PlatesView.PlateSpawned += onPop;
             SceneManager.LoadScene("Main");
             yield return null;
             var rig = Object.FindFirstObjectByType<CameraRig>();
@@ -67,7 +70,11 @@ namespace Playable.Tests
             GameFlow.Ended += onEnded;
             try
             {
-                while (Time.timeSinceLevelLoad < WaveSeconds) yield return null;
+                // Timed from the wave's own start: Time.timeSinceLevelLoad misses the first frame's deltaTime (up to 0.33 s
+                // on a cold run), which the wave's tweens get — a run once found the wave over at 1.09 s.
+                yield return WaitFor(() => firstPop >= 0f, 5f, "волна не началась: PlateSpawned не пришёл");
+                float waveStart = firstPop - PlateConfig.PopUpSeconds;
+                while (Time.time < waveStart + WaveSeconds) yield return null;
                 AssertMidWave(plates, "wave-a");
                 Assert.IsFalse(Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None).Any(p => p.isPlaying), "дымок играет до приземления бобра");
                 yield return PlayableJourneyCapture.Frame("wave");
@@ -182,14 +189,65 @@ namespace Playable.Tests
                 yield return WaitFor(() => ends > 0, FlowConfig.WinSeconds + 0.5f, "GameFlow.Ended не пришёл после победы");
                 Assert.IsTrue(endedWon, "Ended — не победа");
                 Assert.AreEqual(finalScore, endedScore, "Ended не с тем счётом");
+
+                // The win card: up with Ended, INSTALL gone; a tap while it comes in (a hop meant) opens nothing.
+                var card = Object.FindFirstObjectByType<EndCard>();
+                Assert.IsNotNull(card, "в сцене Main нет EndCard");
+                AssertCard(card, EndCardConfig.WinTitle, finalScore, "победа");
+                Assert.IsFalse(install.gameObject.activeInHierarchy || InstallButton.Covers(button.center), "карточка не спрятала INSTALL");
+                int installs = PlayableAd.InstallCalls;
+                PlayableInput.Simulate(centre);
+                Assert.AreEqual(installs, PlayableAd.InstallCalls, "тап, пока карточка въезжает, открыл стор");
+                yield return WaitFor(() => card.Tappable, EndCardConfig.ScaleUpSeconds + EndCardConfig.ScaleDownSeconds + 0.5f, "карточка так и не встала");
                 yield return WaitFor(() => Mathf.Abs(camera.orthographicSize - CameraRig.FitSize(camera.aspect)) < 0.001f, 4f, "после победы камера не вернулась к масштабу острова");
+                yield return PlayableJourneyCapture.Frame("endcard");
+                Rect window = ScreenRect((RectTransform)card.transform.Find("Card/Window"), camera);
+                Assert.IsTrue(window.xMin >= 0f && window.yMin >= 0f && window.xMax <= Screen.width && window.yMax <= Screen.height, $"окно карточки {window} за краем экрана");
+                yield return AssertPulses(card.transform.Find("Card/Window/Play now"));
+                PlayableInput.Simulate(centre);
+                Assert.AreEqual(installs + 1, PlayableAd.InstallCalls, "тап по карточке должен открывать стор ровно один раз");
                 Assert.AreEqual(1, ends, "Ended не один раз");
             }
             finally
             {
+                PlatesView.PlateSpawned -= onPop;
                 HopController.HopStarted -= onHop;
                 GameFlow.IslandChanged -= onIslandChanged;
                 GameFlow.Ended -= onEnded;
+            }
+        }
+
+        /// <summary>No tap for TutorialConfig.IdleSeconds, the game sped up: the idle card — the fail card's look with
+        /// "TRY IT YOURSELF!" and the score — with gameplay input closed and INSTALL gone; a tap while it comes in opens
+        /// nothing, one after opens the store once. What it looks like is the build's `endcard` frame.</summary>
+        [UnityTest]
+        public IEnumerator EndCard_AfterIdle_OpensTheStoreOnATap()
+        {
+            SceneManager.LoadScene("Main");
+            yield return null;
+            var card = Object.FindFirstObjectByType<EndCard>();
+            Assert.IsNotNull(card, "в сцене Main нет EndCard — MainSceneBuilder.Build не запускали?");
+            var hop = Object.FindFirstObjectByType<HopController>();
+            GameObject install = Object.FindFirstObjectByType<InstallButton>().gameObject;
+            var centre = new Vector2(Screen.width / 2f, Screen.height / 2f);
+            Time.timeScale = 4f; // 10 idle seconds in 2.5
+            try
+            {
+                yield return WaitFor(() => hop.InputOpen, 5f, "ввод не открылся после волны");
+                yield return WaitFor(() => card.Shown, TutorialConfig.IdleSeconds + 1f, "без тапов карточка не показалась");
+                AssertCard(card, EndCardConfig.IdleTitle, 0, "простой");
+                Assert.IsFalse(hop.InputOpen, "карточка показалась, а ввод игры открыт");
+                Assert.IsFalse(install.activeInHierarchy, "карточка не спрятала INSTALL");
+                int installs = PlayableAd.InstallCalls;
+                PlayableInput.Simulate(centre);
+                Assert.AreEqual(installs, PlayableAd.InstallCalls, "тап, пока карточка въезжает, открыл стор");
+                yield return WaitFor(() => card.Tappable, EndCardConfig.ScaleUpSeconds + EndCardConfig.ScaleDownSeconds + 0.5f, "карточка так и не встала");
+                PlayableInput.Simulate(centre);
+                Assert.AreEqual(installs + 1, PlayableAd.InstallCalls, "тап по карточке должен открывать стор ровно один раз");
+            }
+            finally
+            {
+                Time.timeScale = 1f;
             }
         }
 
@@ -243,6 +301,7 @@ namespace Playable.Tests
                 Assert.AreEqual(1, ends, "Ended не один раз после падения");
                 Assert.IsFalse(endedWon, "падение закончилось победой");
                 Assert.AreEqual(1, endedScore, "Ended не с тем счётом");
+                AssertCard(Object.FindFirstObjectByType<EndCard>(), EndCardConfig.FellTitle, 1, "падение");
             }
             finally
             {
@@ -452,6 +511,28 @@ namespace Playable.Tests
             Vector3 at = beaver.transform.position;
             Assert.IsTrue(Mathf.Abs(at.x - cell.x * FieldConfig.Spacing) < 0.01f && Mathf.Abs(at.z - cell.y * FieldConfig.Spacing) < 0.01f,
                 $"{when}: бобёр в {at}, а не на {cell}");
+        }
+
+        /// <summary>The end card is up with this title and score, and the network has heard the game ended.</summary>
+        private static void AssertCard(EndCard card, string title, int score, string when)
+        {
+            Assert.IsTrue(card.Shown, $"{when}: нет карточки");
+            Assert.AreEqual(title, card.transform.Find("Card/Window/Title").GetComponent<TMP_Text>().text, $"{when}: не тот заголовок карточки");
+            Assert.AreEqual(score.ToString(), card.transform.Find("Card/Window/Score").GetComponent<TMP_Text>().text, $"{when}: на карточке не тот счёт");
+            Assert.IsTrue(PlayableAd.Ended, $"{when}: карточка показалась, а PlayableAd.GameEnded не позван");
+        }
+
+        /// <summary>PLAY NOW pulses: over one beat its scale swings by most of EndCardConfig.PulseScale's.</summary>
+        private static IEnumerator AssertPulses(Transform button)
+        {
+            float least = 2f, most = 0f, end = Time.time + EndCardConfig.PulseSeconds;
+            while (Time.time < end)
+            {
+                least = Mathf.Min(least, button.localScale.x);
+                most = Mathf.Max(most, button.localScale.x);
+                yield return null;
+            }
+            Assert.Greater(most - least, (EndCardConfig.PulseScale - 1f) * 0.7f, $"PLAY NOW не пульсирует: {least:0.00}…{most:0.00}");
         }
 
         /// <summary>The banner shows this objective, its one line reading <paramref name="text"/>, at rest size.</summary>

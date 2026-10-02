@@ -6,7 +6,9 @@
     { "tap": [0.5, 0.5] },
     { "wait": 500 },
     { "frame": "first-hop" },
-    { "tapCta": true, "at": { "portrait": [0.806, 0.092], "landscape": [0.91, 0.199] } },
+    { "wait": 11000 },
+    { "frame": "endcard" },
+    { "tapCta": true, "at": [0.5, 0.5] },
     { "expectCta": 1 },
     { "hide": true },
     { "show": true }
