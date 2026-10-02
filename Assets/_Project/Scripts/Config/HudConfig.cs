@@ -44,6 +44,10 @@ namespace Playable
         public static readonly float PopupDownSeconds = 0.1f;
         public static readonly float PopupFadeSeconds = 0.4f;
 
+        /// <summary>When the next "+1" pops in, the one still showing fades out over this instead: quick hops land 0.4 s
+        /// and a plate apart, and on the bridge, zoomed out, the two "+1"s sat on top of each other (the journey's `bridge` frame).</summary>
+        public static readonly float PopupMakeWaySeconds = 0.05f;
+
         /// <summary>"+1"s the scene holds, used in turn: landings come at least a hop (HopConfig.HopSeconds) apart, so
         /// with PopupSeconds under Popups hops each has finished before it plays again. Scene objects, not instantiated
         /// (the Playworks build broke on Instantiate after a Destroy, 2026-10-02).</summary>
