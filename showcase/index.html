@@ -86,9 +86,12 @@
     }
     .toast.show { opacity: 1; transform: translate(-50%, 0); }
     @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+    /* index.html#full: the ad alone, filling the window; Back returns to the phone. */
+    #full:target header, #full:target .controls, #full:target footer { display: none; }
+    #full:target .screen { position: fixed; inset: 0; width: 100%; height: 100%; border-radius: 0; }
   </style>
 </head>
-<body>
+<body id="full">
   <header>
     <h1>Deadly <span>Plates</span></h1>
     <p class="lede">A 22-second playable ad. Tap to hop onto the glowing plate; the cracked red ones are traps.</p>
@@ -97,15 +100,15 @@
     <button type="button" data-orientation="portrait" aria-pressed="true">Portrait</button>
     <button type="button" data-orientation="landscape" aria-pressed="false">Landscape</button>
     <button type="button" id="restart">Restart</button>
-    <a class="button" href="ad/index.html">Full screen</a>
+    <a class="button" href="#full">Full screen</a>
   </div>
   <main>
     <div class="phone" id="phone">
-      <iframe class="screen" id="ad" src="ad/index.html" title="Deadly Plates playable ad"></iframe>
+      <iframe class="screen" id="ad" title="Deadly Plates playable ad"></iframe>
     </div>
   </main>
   <footer>
-    Built in Unity 6 and converted to HTML5 by Unity Playworks; this page runs its develop build.
+    Built in Unity 6 and converted to HTML5 by Unity Playworks; this page plays its Unity Ads file as exported.
     In a real ad INSTALL and PLAY NOW open the store; here they show a note.
     <a id="source" hidden>Source on GitHub</a>
   </footer>
@@ -115,11 +118,30 @@
     const ad = document.getElementById('ad');
     const toast = document.getElementById('toast');
 
-    // Inside an iframe the develop build waits for the Playworks Dev Environment to start it, which it
-    // does with this message on the iframe's load. Opened on its own (Full screen) it starts by itself.
-    ad.addEventListener('load', () => {
-      ad.contentWindow.postMessage(JSON.stringify({ name: 'setPlaygroundAssetOverrides', data: '{}' }), '*');
-    });
+    // The Unity Ads file expects its container's global mraid. This page is the container, with only
+    // what the file calls: the state checks that start it, its event hooks, the ad data and open().
+    let hide;
+    window.mraidStub = {
+      getState: () => 'default',
+      isViewable: () => true,
+      addEventListener() {},
+      removeEventListener() {},
+      getMraidAdData: () => ({}),
+      open() { // the store; there is none here
+        toast.textContent = 'In a real ad, this tap opens the store.';
+        toast.classList.add('show');
+        clearTimeout(hide);
+        hide = setTimeout(() => toast.classList.remove('show'), 2200);
+      },
+    };
+
+    // The file plays as exported, with one script in front of it that hands it the stub.
+    const exported = fetch('ad/index.html').then((r) => r.text());
+    const play = async () => {
+      ad.srcdoc = (await exported).replace('<head>', '<head><script>window.mraid = parent.mraidStub<\/script>');
+    };
+    play();
+    document.getElementById('restart').addEventListener('click', play);
 
     for (const button of document.querySelectorAll('[data-orientation]')) {
       button.addEventListener('click', () => {
@@ -127,20 +149,6 @@
         for (const b of document.querySelectorAll('[data-orientation]')) b.setAttribute('aria-pressed', String(b === button));
       });
     }
-    document.getElementById('restart').addEventListener('click', () => { ad.src = ad.src; });
-
-    // The develop build tells its host about the store tap by postMessage; there is no store here.
-    let hide;
-    addEventListener('message', (e) => {
-      if (e.source !== ad.contentWindow) return;
-      let data = e.data;
-      if (typeof data === 'string') { try { data = JSON.parse(data); } catch { return; } }
-      if (!data || data.eventName !== 'cta') return;
-      toast.textContent = 'In a real ad, this tap opens the store.';
-      toast.classList.add('show');
-      clearTimeout(hide);
-      hide = setTimeout(() => toast.classList.remove('show'), 2200);
-    });
 
     // On GitHub Pages (user.github.io/repo/) link back to the repository.
     if (location.hostname.endsWith('.github.io')) {

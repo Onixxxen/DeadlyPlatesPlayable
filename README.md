@@ -10,8 +10,8 @@ red plates are traps. One verb, a timing skill, a fall into the void as the fail
 
 Made in Unity 6 and converted to HTML5 with Unity Playworks (formerly Luna).
 
-**[Play it in the browser](https://onixxxen.github.io/DeadlyPlatesPlayable/)** — in a phone frame,
-portrait and landscape.
+**[Play it in the browser](https://onixxxen.github.io/DeadlyPlatesPlayable/)** — the Unity Ads file
+itself, in a phone frame, portrait and landscape.
 
 ## The 22 seconds
 
@@ -42,9 +42,7 @@ never from a gameplay tap. Sound starts with the first tap.
 |---|---|
 | assets in the build (Playworks' size breakdown) | ≈ 642 KB — meshes 346.7 KB, textures 156.9 KB, animation clips 54.6 KB, sounds 38.8 KB, shaders 18.9 KB |
 | the whole build before packing (runtime, code, assets) | 1.87 MB |
-| the Playworks develop build | ≈ 25 MB — a development build with the full runtime and the Playworks Dev Environment, not a network file |
-| the demo's copy of it (`showcase/ad/`) | 11.6 MB — only the files the playable loads |
-| the Unity Ads file | not exported yet: its size is known once it is exported from the Playworks platform (the networks' limit is 5 MB) |
+| the Unity Ads file, exported from the Playworks platform (`showcase/ad/index.html`, the file the demo plays) | 1.90 MB (1,989,752 bytes) of the 5 MB limit |
 
 ## How it was built
 
@@ -55,11 +53,16 @@ never from a gameplay tap. Sound starts with the first tap.
   a MonoBehaviour and is covered by EditMode tests.
 - **A PlayMode journey plays the ad.** It taps through every beat at 1080×2340 and saves a pair of
   frames at each one, so a pair shows what moves and what stands still.
-- **Browser QA plays the Playworks build.** A Playwright script (`qa/`, the `luna` profile for
-  Playworks builds) serves the build locally with the ad container's API stubbed, plays a journey in
-  portrait (390×844) and landscape (844×390), saves frames and checks what networks reject playables
-  for: the store opening only from a deliberate tap, no sound before the first touch, no requests
-  outside the build, the file size.
+- **Browser QA plays the built ad.** A Playwright script (`qa/`; the `luna` profile for the plugin's
+  develop build, `unity` for the Unity Ads file) serves the build locally with the ad container's API
+  stubbed, plays a journey in portrait (390×844) and landscape (844×390), saves frames and checks
+  what networks reject playables for: the store opening only from a deliberate tap, no sound before
+  the first touch, no requests outside the build, the file size. On the Unity Ads file the ad plays
+  through to the idle card, the store tap is detected, and the file is 1.90 MB of 5 MB. The three
+  violations it reports there come from the exporter, not from the game's code: the file relies on
+  the container's global `mraid` instead of a `<script src="mraid.js">` tag (`missing-marker`), and
+  when the ad is hidden it mutes through `luna:unsafe:mute` but leaves the AudioContext running
+  (`audio-not-paused-when-hidden`, once per orientation).
 
 ## Repository
 
@@ -79,25 +82,24 @@ exports Unity Ads) come from uploading the build to the Playworks platform and e
 
 ## The demo page
 
-`showcase/index.html` shows the develop build's playable (`showcase/ad/`) in a phone frame. It needs
-a web server, not `file://`:
+`showcase/index.html` plays the Unity Ads file (`showcase/ad/index.html`, as exported) in a phone
+frame. It needs a web server, not `file://`:
 
 ```
 python -m http.server 8000 -d showcase
 ```
 
-then open <http://localhost:8000/>. Inside an iframe the develop build waits for the Playworks Dev
-Environment to start it; the page sends it the same start message, and it shows a note where a real
-ad would open the store. The build also reports to its development server (`POST /tracing…`,
-`GET /luna.json` at the site root); a static host answers those with errors, and the ad plays on.
+then open <http://localhost:8000/>. The file expects the `mraid` object of the ad container; the
+page hands it a small stand-in with only the calls the file makes, and where a real ad would open
+the store (the export's store links are placeholders) it shows a note. **Full screen** (`#full`)
+plays it filling the window.
 
-To refresh the demo after a new build, copy `iframe.html` as `showcase/ad/index.html`, then
-`assets/`, `js/deserializers.js` and the `engine/` scripts that `iframe.html` loads (the rest of
-`engine/` is never requested). The GIF comes from the QA video of a recorded run (after
-`npm install` in `qa/`):
+To refresh the demo, export the Unity Ads HTML from the Playworks platform again and copy it over
+`showcase/ad/index.html`. The GIF comes from the QA video of a recorded run (after `npm install` in
+`qa/`):
 
 ```
-node qa/pa-qa.mjs --html showcase/ad/index.html --network luna --journey showcase/record.json --viewports portrait --video --out qa-out/record
+node qa/pa-qa.mjs --html showcase/ad/index.html --network unity --journey showcase/record.json --viewports portrait --video --out qa-out/record
 ffmpeg -ss 1 -to 24 -i qa-out/record/portrait/journey.webm -vf "fps=12,scale=300:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" showcase/deadly-plates.gif
 ```
 
@@ -111,4 +113,4 @@ faster or slower machine the waits may need adjusting.
 - The landing smoke uses the "cfxr smoke cloud x4" texture from Cartoon FX Remaster by JMO Assets
   (Unity Asset Store), as shipped with the original game.
 - The text is set in Benzin Bold, the original game's font.
-- The runtime in `showcase/ad/` is generated by Unity Playworks.
+- `showcase/ad/index.html`, the runtime in it included, is generated by Unity Playworks.
