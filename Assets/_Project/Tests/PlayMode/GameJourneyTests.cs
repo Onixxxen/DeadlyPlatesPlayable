@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Linq;
 using NUnit.Framework;
 using TMPro;
 using UnityEngine;
@@ -14,6 +15,7 @@ namespace Playable.Tests
     /// </summary>
     public class GameJourneyTests
     {
+        private const float WaveSeconds = 0.4f;
         private const float HookSeconds = 2.5f;
 
         [UnityTest]
@@ -24,6 +26,13 @@ namespace Playable.Tests
             yield return null;
             var rig = Object.FindFirstObjectByType<CameraRig>();
             Assert.IsNotNull(rig, "в сцене Main нет CameraRig — MainSceneBuilder.Build не запускали?");
+            var plates = Object.FindFirstObjectByType<PlatesView>();
+            Assert.IsNotNull(plates, "в сцене Main нет PlatesView");
+
+            while (Time.timeSinceLevelLoad < WaveSeconds) yield return null;
+            AssertMidWave(plates, "wave-a");
+            yield return PlayableJourneyCapture.Frame("wave");
+            AssertMidWave(plates, "wave-b");
 
             while (Time.timeSinceLevelLoad < HookSeconds) yield return null;
             yield return PlayableJourneyCapture.Frame("hook");
@@ -31,6 +40,7 @@ namespace Playable.Tests
             Camera camera = Camera.main;
             Assert.AreSame(rig.GetComponent<Camera>(), camera, "кадры сняты не камерой CameraRig");
             AssertIslandInView(camera, "на hook");
+            AssertIslandComplete(plates, rig.Target);
             Bounds beaver = rig.Target.GetComponentInChildren<SkinnedMeshRenderer>().bounds;
             AssertInView(camera, beaver, "бобёр на hook");
             Assert.LessOrEqual(beaver.max.y, CameraConfig.ViewTop, $"бобёр ({beaver.max.y:0.00}) выше коробки, которую держит камера (CameraConfig.ViewTop)");
@@ -52,6 +62,63 @@ namespace Playable.Tests
             int before = PlayableAd.InstallCalls;
             PlayableInput.Simulate(button.center);
             Assert.AreEqual(before + 1, PlayableAd.InstallCalls, "тап по INSTALL должен открывать стор ровно один раз");
+        }
+
+        /// <summary>The calls the hop and the island change make on the plates, which they may not edit:
+        /// a crumble, a dip, a drop, a second wave on a freed cell.</summary>
+        [UnityTest]
+        public IEnumerator Plates_CrumbleDipDropAndPopInAgain()
+        {
+            SceneManager.LoadScene("Main");
+            yield return null;
+            var plates = Object.FindFirstObjectByType<PlatesView>();
+            int waves = 0, spawned = 0, removed = 0;
+            System.Action onWave = () => waves++;
+            System.Action<Vector3> onSpawned = _ => spawned++;
+            System.Action<Vector3> onRemoved = _ => removed++;
+            PlatesView.WaveFinished += onWave;
+            PlatesView.PlateSpawned += onSpawned;
+            PlatesView.PlateRemoved += onRemoved;
+            try
+            {
+                float timeout = Time.time + 5f;
+                while (waves == 0 && Time.time < timeout) yield return null;
+                Assert.AreEqual(1, waves, "WaveFinished не пришёл после первой волны");
+                Assert.AreEqual(plates.Field.Plates.Count(), spawned, "PlateSpawned не по разу на плиту");
+
+                Vector2Int crumbling = new Vector2Int(1, 0), dipping = new Vector2Int(-1, 0), dropping = new Vector2Int(0, 1);
+                PlateView crumbled = plates.Plate(crumbling), dipped = plates.Plate(dipping), dropped = plates.Plate(dropping);
+                plates.Remove(crumbling);
+                plates.Dip(dipping);
+                plates.Drop(dropping);
+                Assert.IsNull(plates.Plate(crumbling), "клетка раскрошенной плиты не освободилась сразу");
+                Assert.IsNull(plates.Plate(dropping), "клетка упавшей плиты не освободилась сразу");
+                float lowest = 0f, end = Time.time + PlateConfig.DipDownSeconds + PlateConfig.DipUpSeconds + 0.1f;
+                while (Time.time < end)
+                {
+                    lowest = Mathf.Min(lowest, dipped.transform.localPosition.y);
+                    yield return null;
+                }
+                Assert.AreEqual(-PlateConfig.DipDepth, lowest, 0.001f, "плита не прогнулась на DipDepth");
+                Assert.AreEqual(0f, dipped.transform.localPosition.y, 0.001f, "плита не вернулась после прогиба");
+                yield return new WaitForSeconds(PlateConfig.DropSeconds); // the drop is the longest
+                Assert.IsTrue(crumbled == null, "раскрошенная плита осталась в сцене");
+                Assert.AreEqual(1, removed, "PlateRemoved не один раз");
+                Assert.IsTrue(dropped == null, "упавшая плита осталась в сцене");
+
+                bool done = false;
+                plates.PopIn(new[] { crumbling }, crumbling, () => done = true);
+                yield return new WaitForSeconds(PlateConfig.PopUpSeconds + PlateConfig.PopDownSeconds + 0.1f);
+                Assert.IsTrue(done, "PopIn не позвал done");
+                Assert.AreEqual(1f, plates.Plate(crumbling).transform.localScale.x, 0.001f, "новая плита не встала в полный размер");
+                Assert.AreEqual(1, waves, "WaveFinished — только для первого острова");
+            }
+            finally
+            {
+                PlatesView.WaveFinished -= onWave;
+                PlatesView.PlateSpawned -= onSpawned;
+                PlatesView.PlateRemoved -= onRemoved;
+            }
         }
 
         /// <summary>The camera's fit in the build's orientations too, and the island not lost in the middle.</summary>
@@ -76,6 +143,36 @@ namespace Playable.Tests
             {
                 Object.DestroyImmediate(go);
             }
+        }
+
+        /// <summary>Some plate of the field between nothing and its rest size: the wave is running.</summary>
+        private static void AssertMidWave(PlatesView plates, string when)
+        {
+            int between = 0;
+            foreach (Vector2Int cell in plates.Field.Plates)
+            {
+                float scale = plates.Plate(cell).transform.localScale.x;
+                if (scale > 0.02f && Mathf.Abs(scale - 1f) > 0.02f) between++;
+            }
+            Assert.Greater(between, 0, $"{when} ({Time.timeSinceLevelLoad:0.00} с): ни одна плита не в середине волны");
+        }
+
+        /// <summary>Every plate of the field at rest size, a trap among them, the plate the beaver faces glowing.</summary>
+        private static void AssertIslandComplete(PlatesView plates, Transform beaver)
+        {
+            int traps = 0;
+            foreach (Vector2Int cell in plates.Field.Plates)
+            {
+                PlateView plate = plates.Plate(cell);
+                Assert.IsNotNull(plate, $"на hook нет плиты {cell}");
+                Assert.AreEqual(1f, plate.transform.localScale.x, 0.001f, $"плита {cell} на hook не в полный размер");
+                Assert.AreEqual(plates.Field.IsTrap(cell), plate.IsTrap, $"плита {cell} выглядит не тем, что она в поле");
+                if (plate.IsTrap) traps++;
+            }
+            Assert.Greater(traps, 0, "на hook ни одной ловушки");
+            Vector2Int faced = plates.Field.Beaver + Field.Facing(beaver.eulerAngles.y);
+            Assert.IsTrue(plates.Target.HasValue && plates.Target.Value == faced, $"цель {plates.Target} — не плита {faced}, на которую смотрит бобёр");
+            Assert.IsTrue(plates.Plate(faced).Glowing, $"плита {faced}, на которую смотрит бобёр, не светится");
         }
 
         /// <summary>Every plate of the 5×5 island at the world origin, and the hat of a beaver standing on any of
