@@ -1,10 +1,12 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
+using UnityEngine.UI;
 
 namespace Playable.Tests
 {
@@ -26,6 +28,11 @@ namespace Playable.Tests
         /// </summary>
         private static readonly Vector2Int[] Path = { new Vector2Int(0, -1), new Vector2Int(0, -2), new Vector2Int(-1, -2), new Vector2Int(-1, -1) };
 
+        /// <summary>Then up the island's left half to (−1, 1): the 6th hop changes the island there, with the + plates
+        /// behind and beside the beaver standing, and the bridge goes left (−x) — FieldConfig.Seed's straight line across
+        /// is free, between a trap in the first row and one in the second.</summary>
+        private static readonly Vector2Int[] ToTheChange = { new Vector2Int(-1, 0), new Vector2Int(-1, 1) };
+
         [UnityTest]
         public IEnumerator Main_FromHookToInstall()
         {
@@ -40,9 +47,24 @@ namespace Playable.Tests
             Assert.IsNotNull(hop, "в сцене Main нет HopController");
             Assert.AreSame(hop.transform, rig.Target, "камера следит не за бобром");
             var beaver = hop.GetComponent<BeaverView>();
-            int hops = 0;
+            var flow = Object.FindFirstObjectByType<GameFlow>();
+            Assert.IsNotNull(flow, "в сцене Main нет GameFlow");
+            var banner = Object.FindFirstObjectByType<ObjectiveBanner>();
+            Assert.IsNotNull(banner, "в сцене Main нет ObjectiveBanner");
+            int hops = 0, islandChanges = 0, ends = 0;
+            bool endedWon = false;
+            int endedScore = -1;
             System.Action onHop = () => hops++;
+            System.Action onIslandChanged = () => islandChanges++;
+            System.Action<bool, int> onEnded = (won, score) =>
+            {
+                ends++;
+                endedWon = won;
+                endedScore = score;
+            };
             HopController.HopStarted += onHop;
+            GameFlow.IslandChanged += onIslandChanged;
+            GameFlow.Ended += onEnded;
             try
             {
                 while (Time.timeSinceLevelLoad < WaveSeconds) yield return null;
@@ -58,6 +80,7 @@ namespace Playable.Tests
 
                 Camera camera = Camera.main;
                 Assert.AreSame(rig.GetComponent<Camera>(), camera, "кадры сняты не камерой CameraRig");
+                Assert.AreEqual(CameraRig.FitSize(camera.aspect), camera.orthographicSize, 0.001f, "на hook камера не в масштабе острова");
                 AssertIslandInView(camera, "на hook");
                 AssertIslandComplete(plates, beaver);
                 Bounds body = rig.Target.GetComponentInChildren<SkinnedMeshRenderer>().bounds;
@@ -65,6 +88,8 @@ namespace Playable.Tests
                 Assert.LessOrEqual(body.max.y, CameraConfig.ViewTop, $"бобёр ({body.max.y:0.00}) выше коробки, которую держит камера (CameraConfig.ViewTop)");
                 Assert.IsTrue(rig.Target.GetComponent<Animator>().GetCurrentAnimatorStateInfo(0).IsName("Walk"), "бобёр не в Walk");
                 Assert.IsTrue(hop.InputOpen, "на hook ввод ещё закрыт");
+                Assert.AreEqual(FlowState.Hook, flow.State, "до первого прыжка игра не в hook");
+                Assert.AreEqual(Objective.None, banner.Shown, "задание на hook");
 
                 // The first hop, a tap in the air that must not hop, the frame when the build's journey takes it.
                 var centre = new Vector2(Screen.width / 2f, Screen.height / 2f);
@@ -74,12 +99,13 @@ namespace Playable.Tests
                 yield return HopOnto(hop, plates, Path[0]);
                 PlayableInput.Simulate(centre);
                 yield return WaitGame(FirstHopSeconds);
-                Assert.IsTrue(startPlate == null || startPlate.transform.localScale.x < 0.9f, "стартовая плита на first-hop не крошится");
+                Assert.IsTrue(!startPlate.gameObject.activeSelf || startPlate.transform.localScale.x < 0.9f, "стартовая плита на first-hop не крошится");
                 yaw = beaver.Yaw;
                 yield return PlayableJourneyCapture.Frame("first-hop");
                 AssertTurned(beaver, yaw, "first-hop");
                 Assert.AreEqual(1, hops, "тап во время прыжка начал ещё один");
                 Assert.AreEqual(1, plates.Field.Score, "очко за первый прыжок");
+                Assert.AreEqual(FlowState.Play, flow.State, "после первого прыжка игра не в play");
                 AssertStandsOn(beaver, Path[0], "first-hop");
                 Assert.IsTrue(Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None).Any(p => p.particleCount > 0), "на first-hop нет дымка");
 
@@ -93,9 +119,11 @@ namespace Playable.Tests
                 Assert.AreEqual(4, plates.Field.Score, "не 4 очка за четыре прыжка");
                 Assert.IsNull(plates.Field.Change, "остров сменился раньше кадра hops");
                 AssertStandsOn(beaver, Path[3], "hops");
-                Assert.IsTrue(startPlate == null && trail.All(p => p == null), "на hops не исчезли все четыре плиты пути");
+                Assert.IsTrue(!startPlate.gameObject.activeSelf && trail.All(p => !p.gameObject.activeSelf), "на hops не исчезли все четыре плиты пути");
                 Assert.IsTrue(Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None).Any(p => p.isPlaying && Vector3.Distance(p.transform.position, beaver.transform.position) < 0.5f),
                     $"5-я посадка (дымки сцены по кругу: их {HopConfig.Puffs}) без дымка");
+                AssertBanner(banner, Objective.LeaveTwo, FlowConfig.LeaveTwoText, "hops");
+                Vector3 cameraAtHops = camera.transform.position;
 
                 var install = Object.FindFirstObjectByType<InstallButton>();
                 Assert.IsNotNull(install, "нет кнопки INSTALL");
@@ -114,10 +142,54 @@ namespace Playable.Tests
                 Assert.AreEqual(before + 1, PlayableAd.InstallCalls, "тап по INSTALL должен открывать стор ровно один раз");
                 Assert.AreEqual(4, hops, "тап по INSTALL начал прыжок");
                 Assert.IsTrue(hop.InputOpen, "тап по INSTALL закрыл ввод");
+
+                // The island change: the 6th hop makes it; input waits until the bridge is in.
+                foreach (Vector2Int cell in ToTheChange) yield return HopOnto(hop, plates, cell);
+                IslandChange change = plates.Field.Change;
+                Assert.IsNotNull(change, "остров не сменился на 6-м прыжке");
+                Vector2Int foot = plates.Field.Beaver;
+                yield return WaitFor(() => islandChanges > 0, HopConfig.HopSeconds + 0.5f, "GameFlow.IslandChanged не пришёл после посадки");
+                Assert.IsFalse(hop.InputOpen, "ввод открыт, пока мост ещё не появился");
+                yield return WaitFor(() => hop.InputOpen, FlowConfig.NewIslandDelay + 3f, "ввод не открылся после смены острова");
+                yield return CameraFraming(camera, plates, foot, "island");
+                yield return PlayableJourneyCapture.Frame("island");
+                Assert.AreEqual(1, islandChanges, "IslandChanged не один раз");
+                AssertOnlyTheFieldsPlates(plates, "island");
+                AssertBanner(banner, Objective.CrossBridge, FlowConfig.CrossBridgeText, "island");
+                var ahead = new Vector3(change.Direction.x, 0f, change.Direction.y);
+                float moved = Vector3.Dot(camera.transform.position - cameraAtHops, ahead);
+                Assert.Greater(moved, 2f, $"камера на island сдвинулась к новому острову на {moved:0.00} — мало");
+                AssertCrossingInView(camera, plates, beaver, banner, "island");
+
+                // Onto the bridge: straight across, along the change's direction.
+                for (int row = 1; row <= 2; row++) yield return HopOnto(hop, plates, plates.Field.Beaver + change.Direction);
+                Vector2Int onBridge = plates.Field.Beaver;
+                yield return WaitGame(HopConfig.HopSeconds + 0.05f);
+                yield return CameraFraming(camera, plates, onBridge, "bridge");
+                yield return PlayableJourneyCapture.Frame("bridge");
+                CollectionAssert.Contains(change.Bridge, onBridge, "кадр bridge — бобёр не на мосту");
+                AssertStandsOn(beaver, onBridge, "bridge");
+                AssertCrossingInView(camera, plates, beaver, banner, "bridge");
+
+                // Onto the new island: the win, and the end after the landing has played.
+                while (!plates.Field.Won) yield return HopOnto(hop, plates, plates.Field.Beaver + change.Direction);
+                Assert.AreEqual(FieldConfig.NewIslandDistance - FieldConfig.IslandSize / 2, Vector2.Dot(plates.Field.Beaver - foot, change.Direction), 0.001f,
+                    "победа не на ближнем краю нового острова");
+                int finalScore = plates.Field.Score;
+                yield return WaitFor(() => flow.State == FlowState.Won, HopConfig.HopSeconds + 0.5f, "посадка на новый остров — не победа");
+                Assert.IsFalse(hop.InputOpen, "после победы ввод открыт");
+                Assert.AreEqual(0, ends, "Ended раньше, чем посадка отыграла");
+                yield return WaitFor(() => ends > 0, FlowConfig.WinSeconds + 0.5f, "GameFlow.Ended не пришёл после победы");
+                Assert.IsTrue(endedWon, "Ended — не победа");
+                Assert.AreEqual(finalScore, endedScore, "Ended не с тем счётом");
+                yield return WaitFor(() => Mathf.Abs(camera.orthographicSize - CameraRig.FitSize(camera.aspect)) < 0.001f, 4f, "после победы камера не вернулась к масштабу острова");
+                Assert.AreEqual(1, ends, "Ended не один раз");
             }
             finally
             {
                 HopController.HopStarted -= onHop;
+                GameFlow.IslandChanged -= onIslandChanged;
+                GameFlow.Ended -= onEnded;
             }
         }
 
@@ -129,12 +201,22 @@ namespace Playable.Tests
             yield return null;
             var plates = Object.FindFirstObjectByType<PlatesView>();
             var hop = Object.FindFirstObjectByType<HopController>();
+            var flow = Object.FindFirstObjectByType<GameFlow>();
             Transform beaver = hop.transform;
-            int fell = 0, landed = 0;
+            int fell = 0, landed = 0, ends = 0;
+            bool endedWon = true;
+            int endedScore = -1;
             System.Action onFell = () => fell++;
             System.Action<Vector2Int, int> onLanded = (cell, score) => landed++;
+            System.Action<bool, int> onEnded = (won, score) =>
+            {
+                ends++;
+                endedWon = won;
+                endedScore = score;
+            };
             HopController.Fell += onFell;
             HopController.Landed += onLanded;
+            GameFlow.Ended += onEnded;
             try
             {
                 var trap = new Vector2Int(-2, 0); // FieldConfig.Seed's trap on the left rim
@@ -152,15 +234,21 @@ namespace Playable.Tests
                 Assert.IsTrue(beaver.GetComponent<Animator>().GetCurrentAnimatorStateInfo(0).IsName("Fall"), "бобёр падает не в Fall");
                 PlayableInput.Simulate(new Vector2(Screen.width / 2f, Screen.height / 2f)); // a hop now would throw: the game is over
                 Assert.IsFalse(hop.InputOpen, "ввод открыт во время падения");
+                Assert.AreEqual(FlowState.Lost, flow.State, "падение — не проигрыш");
+                Assert.AreEqual(0, ends, "Ended посреди падения: карточка закрыла бы его");
                 yield return WaitGame(PlateConfig.DropSeconds / 2f + 0.1f);
                 Assert.AreEqual(HopConfig.StandHeight - PlateConfig.DropDistance, beaver.position.y, 0.01f, "бобёр не провалился на DropDistance");
-                Assert.IsTrue(plate == null, "упавшая ловушка осталась в сцене");
+                Assert.IsTrue(plate != null && !plate.gameObject.activeSelf, "упавшая ловушка не выключилась (или уничтожена)");
                 Assert.AreEqual(1, fell, "Fell не один раз");
+                Assert.AreEqual(1, ends, "Ended не один раз после падения");
+                Assert.IsFalse(endedWon, "падение закончилось победой");
+                Assert.AreEqual(1, endedScore, "Ended не с тем счётом");
             }
             finally
             {
                 HopController.Fell -= onFell;
                 HopController.Landed -= onLanded;
+                GameFlow.Ended -= onEnded;
             }
         }
 
@@ -234,9 +322,10 @@ namespace Playable.Tests
                 Assert.AreEqual(-PlateConfig.DipDepth, lowest, 0.001f, "плита не прогнулась на DipDepth");
                 Assert.AreEqual(0f, dipped.transform.localPosition.y, 0.001f, "плита не вернулась после прогиба");
                 yield return new WaitForSeconds(PlateConfig.DropSeconds); // the drop is the longest
-                Assert.IsTrue(crumbled == null, "раскрошенная плита осталась в сцене");
+                // Switched off, not destroyed: in the Playworks build an Instantiate after a Destroy failed.
+                Assert.IsTrue(crumbled != null && !crumbled.gameObject.activeSelf, "раскрошенная плита не выключилась (или уничтожена)");
                 Assert.AreEqual(1, removed, "PlateRemoved не один раз");
-                Assert.IsTrue(dropped == null, "упавшая плита осталась в сцене");
+                Assert.IsTrue(dropped != null && !dropped.gameObject.activeSelf, "упавшая плита не выключилась (или уничтожена)");
 
                 bool done = false;
                 plates.PopIn(new[] { crumbling }, crumbling, () => done = true);
@@ -270,6 +359,52 @@ namespace Playable.Tests
                 go.transform.SetPositionAndRotation(CameraRig.PositionFor(Vector3.zero), CameraConfig.Rotation);
                 Rect span = AssertIslandInView(camera, $"при {width}×{height}");
                 Assert.Greater(Mathf.Max(span.width, span.height), 0.65f, $"при {width}×{height} остров занимает {span} экрана — мелко");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+            }
+        }
+
+        /// <summary>The crossing's framing (IslandTransition.Framed, CameraRig.Fit) in the build's orientations too: with the
+        /// beaver anywhere from the bridge's foot to its last row, what is framed is on screen and under the banner's line
+        /// (FlowConfig.CameraTop).</summary>
+        [TestCase(390, 844)]
+        [TestCase(844, 390)]
+        [TestCase(1080, 2340)]
+        public void TheCrossingFitsUnderTheBanner(int width, int height)
+        {
+            var field = new Field(FieldConfig.Seed);
+            foreach (Vector2Int cell in Path.Concat(ToTheChange)) Assert.AreEqual(HopOutcome.Safe, field.Hop(cell - field.Beaver), $"путь сценария: {cell}");
+            Assert.IsNotNull(field.Change, "путь сценария не меняет остров");
+            var go = new GameObject("Fit test camera");
+            try
+            {
+                var camera = go.AddComponent<Camera>();
+                camera.enabled = false;
+                camera.orthographic = true;
+                camera.aspect = (float)width / height;
+                go.transform.rotation = CameraConfig.Rotation;
+                while (!field.Won)
+                {
+                    Bounds[] boxes = IslandTransition.Framed(field, field.Beaver);
+                    float size;
+                    go.transform.position = CameraRig.Fit(boxes, FlowConfig.CameraTop, camera.aspect, out size);
+                    camera.orthographicSize = size;
+                    float left = 1f, right = 1f, bottom = 1f, under = 1f;
+                    foreach (Bounds box in boxes)
+                    {
+                        Rect seen = AssertInView(camera, box, $"при {width}×{height}, бобёр на {field.Beaver}");
+                        left = Mathf.Min(left, seen.xMin);
+                        right = Mathf.Min(right, 1f - seen.xMax);
+                        bottom = Mathf.Min(bottom, seen.yMin);
+                        under = Mathf.Min(under, FlowConfig.CameraTop - seen.yMax);
+                    }
+                    Debug.Log($"[Crossing fit] {width}x{height}, beaver on {field.Beaver}: zoom {size / CameraRig.FitSize(camera.aspect):0.00}, " +
+                        $"px to the left edge {left * width:0}, the right {right * width:0}, the bottom {bottom * height:0}, the banner's line {under * height:0}");
+                    Assert.GreaterOrEqual(under, 0f, $"при {width}×{height}, бобёр на {field.Beaver}: кадр заходит выше линии баннера");
+                    Assert.AreEqual(HopOutcome.Safe, field.Hop(field.Change.Direction), "прямая через мост не свободна");
+                }
             }
             finally
             {
@@ -318,6 +453,67 @@ namespace Playable.Tests
             Assert.IsTrue(Mathf.Abs(at.x - cell.x * FieldConfig.Spacing) < 0.01f && Mathf.Abs(at.z - cell.y * FieldConfig.Spacing) < 0.01f,
                 $"{when}: бобёр в {at}, а не на {cell}");
         }
+
+        /// <summary>The banner shows this objective, its one line reading <paramref name="text"/>, at rest size.</summary>
+        private static void AssertBanner(ObjectiveBanner banner, Objective objective, string text, string frame)
+        {
+            Assert.AreEqual(objective, banner.Shown, $"{frame}: на баннере не {objective}");
+            TMP_Text[] lines = banner.GetComponentsInChildren<TMP_Text>(); // the shown line only: the others are inactive
+            Assert.AreEqual(1, lines.Length, $"{frame}: на баннере не одна строка");
+            Assert.AreEqual(text, lines[0].text, $"{frame}: не тот текст задания");
+            Assert.AreEqual(1f, banner.transform.localScale.x, 0.01f, $"{frame}: баннер не в полный размер");
+        }
+
+        /// <summary>Every plate on screen is one the field has, at rest size and looking like it: the old island has gone
+        /// but for the beaver's +, the bridge and the new island are in.</summary>
+        private static void AssertOnlyTheFieldsPlates(PlatesView plates, string frame)
+        {
+            int count = 0;
+            foreach (Vector2Int cell in plates.Field.Plates)
+            {
+                PlateView plate = plates.Plate(cell);
+                Assert.IsNotNull(plate, $"{frame}: нет плиты {cell}");
+                Assert.AreEqual(1f, plate.transform.localScale.x, 0.001f, $"{frame}: плита {cell} не в полный размер");
+                Assert.AreEqual(plates.Field.IsTrap(cell), plate.IsTrap, $"{frame}: плита {cell} выглядит не тем, что она в поле");
+                count++;
+            }
+            Assert.AreEqual(count, Object.FindObjectsByType<PlateView>(FindObjectsSortMode.None).Length,
+                $"{frame}: на экране плиты, которых нет в поле — старый остров не ушёл");
+        }
+
+        /// <summary>Waits until the camera has eased onto what it frames with the beaver on <paramref name="cell"/>: the
+        /// beaver and every plate left.</summary>
+        private static IEnumerator CameraFraming(Camera camera, PlatesView plates, Vector2Int cell, string frame)
+        {
+            float size;
+            Vector3 goal = CameraRig.Fit(IslandTransition.Framed(plates.Field, cell), FlowConfig.CameraTop, camera.aspect, out size);
+            yield return WaitFor(() => Vector3.Distance(camera.transform.position, goal) < 0.05f && Mathf.Abs(camera.orthographicSize - size) < 0.01f, 5f,
+                $"{frame}: камера так и не встала на бобра и новый остров");
+        }
+
+        /// <summary>The beaver and every plate left — the whole new island among them — on screen, none cut by an edge, and
+        /// under the banner; logs how many pixels the nearest of them leave to each edge and to the banner.</summary>
+        private static void AssertCrossingInView(Camera camera, PlatesView plates, BeaverView beaver, ObjectiveBanner banner, string frame)
+        {
+            var boxes = new List<Bounds> { beaver.GetComponentInChildren<SkinnedMeshRenderer>().bounds };
+            foreach (Vector2Int cell in plates.Field.Plates) boxes.Add(PlateBounds(cell));
+            Rect pill = ScreenRect((RectTransform)banner.GetComponentInChildren<Image>().transform, camera);
+            float left = float.MaxValue, right = float.MaxValue, bottom = float.MaxValue, under = float.MaxValue;
+            foreach (Bounds box in boxes)
+            {
+                Rect seen = AssertInView(camera, box, $"{frame}: {box.center}");
+                left = Mathf.Min(left, seen.xMin * Screen.width);
+                right = Mathf.Min(right, (1f - seen.xMax) * Screen.width);
+                bottom = Mathf.Min(bottom, seen.yMin * Screen.height);
+                under = Mathf.Min(under, pill.yMin - seen.yMax * Screen.height);
+            }
+            Debug.Log($"[GameJourney] {frame} at {Screen.width}x{Screen.height}, zoom {camera.orthographicSize / CameraRig.FitSize(camera.aspect):0.00}: " +
+                $"px to the left edge {left:0}, the right {right:0}, the bottom {bottom:0}, the banner {under:0}");
+            Assert.Greater(under, 0f, $"{frame}: бобёр или новый остров под баннером ({under:0} px)");
+        }
+
+        private static Bounds PlateBounds(Vector2Int cell) =>
+            new Bounds(new Vector3(cell.x * FieldConfig.Spacing, 0f, cell.y * FieldConfig.Spacing), PlateConfig.Size);
 
         /// <summary>Some plate of the field between nothing and its rest size: the wave is running.</summary>
         private static void AssertMidWave(PlatesView plates, string when)

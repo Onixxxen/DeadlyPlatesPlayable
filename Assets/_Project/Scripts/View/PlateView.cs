@@ -63,13 +63,15 @@ namespace Playable
             Tween.Tint(tint, on ? PlateConfig.Glow : rest, PlateConfig.GlowSeconds);
         }
 
-        /// <summary>Shrinks and sinks away after <paramref name="delay"/>, then is gone; <paramref name="started"/> as it starts.</summary>
+        /// <summary>Shrinks and sinks away after <paramref name="delay"/>, then is switched off; <paramref name="started"/> as it starts.
+        /// Switched off, never destroyed: in the Playworks build an Instantiate after a Destroy failed (2026-10-02), and the
+        /// island change makes plates after others have gone.</summary>
         internal void Crumble(float delay, Action started)
         {
             Tween.Delay(this, delay, () =>
             {
                 started();
-                Tween.Scale(transform, Vector3.zero, PlateConfig.CrumbleSeconds, Ease.InQuad, 0f, () => Destroy(gameObject));
+                Tween.Scale(transform, Vector3.zero, PlateConfig.CrumbleSeconds, Ease.InQuad, 0f, () => gameObject.SetActive(false));
                 Tween.Move(transform, home + Vector3.down * PlateConfig.CrumbleDrop, PlateConfig.CrumbleSeconds, Ease.InQuad);
             });
         }
@@ -80,13 +82,13 @@ namespace Playable
                 () => Tween.Move(transform, home, PlateConfig.DipUpSeconds, Ease.OutQuad));
         }
 
-        /// <summary>Falls away from wherever it is, then is gone.</summary>
+        /// <summary>Falls away from wherever it is, then is switched off (see <see cref="Crumble"/>).</summary>
         internal void Drop()
         {
-            Tween.Move(transform, home + Vector3.down * PlateConfig.DropDistance, PlateConfig.DropSeconds, Ease.InQuad, 0f, () => Destroy(gameObject));
+            Tween.Move(transform, home + Vector3.down * PlateConfig.DropDistance, PlateConfig.DropSeconds, Ease.InQuad, 0f, () => gameObject.SetActive(false));
         }
 
-        private void OnDestroy()
+        private void OnDestroy() // only when the scene goes: plates are never destroyed in play
         {
             if (tint != null) Destroy(tint);
             if (dark != null) Destroy(dark);

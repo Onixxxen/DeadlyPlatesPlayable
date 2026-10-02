@@ -14,7 +14,8 @@ namespace Playable
     public sealed class HopController : MonoBehaviour
     {
         /// <summary>Input opened: the beaver stands on a plate, turning, and a tap hops. Raised after the drop-in and
-        /// after every safe landing, unless <see cref="CloseInput"/> came first.</summary>
+        /// after every safe landing, unless <see cref="CloseInput"/> came first; during a <see cref="Hold"/>, at its
+        /// release.</summary>
         public static event Action Ready;
 
         /// <summary>A tap started a hop; input stays closed until it lands.</summary>
@@ -32,6 +33,8 @@ namespace Playable
         private bool turning;
         private bool open;
         private bool closed;
+        private bool held;
+        private bool waiting; // input would have opened during a hold
 
         /// <summary>A gameplay tap now would hop.</summary>
         public bool InputOpen => open;
@@ -41,6 +44,25 @@ namespace Playable
         {
             closed = true;
             open = false;
+        }
+
+        /// <summary>No hop until <see cref="Release"/> (the island change, while its plates come in): input that would
+        /// open meanwhile opens at the release. A hop in the air still lands.</summary>
+        public void Hold()
+        {
+            held = true;
+            if (!open) return;
+            open = false;
+            waiting = true;
+            plates.Target = null;
+        }
+
+        public void Release()
+        {
+            held = false;
+            if (!waiting) return;
+            waiting = false;
+            Open();
         }
 
         private void Awake() => beaver = GetComponent<BeaverView>();
@@ -131,6 +153,11 @@ namespace Playable
         private void Open()
         {
             if (closed) return;
+            if (held)
+            {
+                waiting = true;
+                return;
+            }
             open = true;
             Aim();
             if (Ready != null) Ready();
